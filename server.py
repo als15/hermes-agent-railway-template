@@ -10,6 +10,8 @@ from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import yaml
+
 from starlette.applications import Starlette
 from starlette.authentication import (
     AuthCredentials,
@@ -37,6 +39,7 @@ if not ADMIN_PASSWORD:
 
 HERMES_HOME = os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
 ENV_FILE_PATH = Path(HERMES_HOME) / ".env"
+CONFIG_YAML_PATH = Path(HERMES_HOME) / "config.yaml"
 PAIRING_DIR = Path(HERMES_HOME) / "pairing"
 CODE_TTL_SECONDS = 3600
 
@@ -156,6 +159,33 @@ def write_env_file(path: Path, env_vars: dict[str, str]):
         lines.append("")
 
     path.write_text("\n".join(lines) + "\n" if lines else "")
+
+
+def read_config_yaml() -> dict:
+    if not CONFIG_YAML_PATH.exists():
+        return {}
+    try:
+        return yaml.safe_load(CONFIG_YAML_PATH.read_text()) or {}
+    except Exception:
+        return {}
+
+
+def write_model_to_config_yaml(model: str):
+    # Hermes reads the default model from ~/.hermes/config.yaml (model.default).
+    # The LLM_MODEL env var is no longer honored.
+    CONFIG_YAML_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config = read_config_yaml()
+    model_section = config.setdefault("model", {}) if isinstance(config.get("model"), dict) or "model" not in config else config["model"]
+    if not isinstance(model_section, dict):
+        model_section = {}
+        config["model"] = model_section
+    if model:
+        model_section["default"] = model
+    else:
+        model_section.pop("default", None)
+        if not model_section:
+            config.pop("model", None)
+    CONFIG_YAML_PATH.write_text(yaml.safe_dump(config, sort_keys=False) if config else "")
 
 
 def mask_secrets(env_vars: dict[str, str]) -> dict[str, str]:
@@ -312,6 +342,9 @@ async def api_config_get(request: Request):
         return auth_err
     async with config_lock:
         env_vars = read_env_file(ENV_FILE_PATH)
+        yaml_model = (read_config_yaml().get("model") or {}).get("default", "")
+    if yaml_model:
+        env_vars["LLM_MODEL"] = yaml_model
     defs = [
         {"key": key, "label": label, "category": cat, "password": is_pw}
         for key, label, cat, is_pw in ENV_VAR_DEFS
@@ -341,6 +374,7 @@ async def api_config_put(request: Request):
                 if key not in merged:
                     merged[key] = value
             write_env_file(ENV_FILE_PATH, merged)
+            write_model_to_config_yaml(merged.get("LLM_MODEL", ""))
 
         if restart:
             asyncio.create_task(gateway.restart())

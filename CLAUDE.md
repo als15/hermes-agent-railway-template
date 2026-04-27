@@ -7,6 +7,7 @@ Python/Starlette web server that wraps Hermes Agent's gateway as a managed subpr
 - `server.py` — Main server: HTTP handlers, gateway process manager, basic auth, .env file management
 - `templates/index.html` — Single-page UI with Tailwind CSS + Alpine.js
 - Config is stored as a flat `.env` file at `/data/.hermes/.env` (Hermes uses python-dotenv)
+- The default model lives in `/data/.hermes/config.yaml` under `model.default`. Hermes no longer reads `LLM_MODEL` from `.env`, so the UI's Model field is mirrored into this YAML file on save and read back from it on load.
 - Gateway is spawned via `hermes gateway` command with env vars from the .env file
 
 ## Key patterns
